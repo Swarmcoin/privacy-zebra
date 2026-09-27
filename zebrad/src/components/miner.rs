@@ -288,9 +288,8 @@ where
     // One counter and one reporter for the whole node: an operator wants the rate
     // this machine is achieving, not one line per thread that they have to add up.
     let attempts = Arc::new(AtomicU64::new(0));
-    let rate_reporter = tokio::task::spawn(
-        report_solver_rate(attempts.clone(), solver_count).in_current_span(),
-    );
+    let rate_reporter =
+        tokio::task::spawn(report_solver_rate(attempts.clone(), solver_count).in_current_span());
     abort_handles.push(rate_reporter.abort_handle());
 
     // Shared by every solver, so the first one to solve the current parent is the
@@ -872,7 +871,10 @@ mod tests {
         let guard = SubmissionGuard::new();
 
         assert!(guard.claim(parent(1)), "the first claim wins");
-        assert!(!guard.claim(parent(1)), "the same parent is already claimed");
+        assert!(
+            !guard.claim(parent(1)),
+            "the same parent is already claimed"
+        );
         assert!(guard.claim(parent(2)), "a new parent is new work");
         assert!(!guard.claim(parent(2)));
         assert!(
