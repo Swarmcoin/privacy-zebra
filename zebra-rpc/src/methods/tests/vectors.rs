@@ -2384,6 +2384,8 @@ async fn gbt_with(net: Network, addr: ZcashAddress) {
         extra_coinbase_data: None,
         miner_memo: None,
         internal_miner: true,
+        // These tests are about the RPC, not about how hard the node solves.
+        internal_miner_threads: None,
     };
 
     // nu5 block height
@@ -3079,6 +3081,8 @@ async fn rpc_getdifficulty() {
         extra_coinbase_data: None,
         miner_memo: None,
         internal_miner: true,
+        // These tests are about the RPC, not about how hard the node solves.
+        internal_miner_threads: None,
     };
 
     // nu5 block height

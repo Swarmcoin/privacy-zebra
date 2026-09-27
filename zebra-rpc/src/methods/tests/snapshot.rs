@@ -1030,6 +1030,8 @@ pub async fn test_mining_rpcs<State, ReadState>(
         miner_memo: None,
         // TODO: Use default field values when optional features are enabled in tests #8183
         internal_miner: true,
+        // This test is about the RPC, not about how hard the node solves.
+        internal_miner_threads: None,
     };
 
     // nu5 block height
