@@ -857,6 +857,16 @@ where
 /// Returns an error if Zebra is not synced to the consensus chain tip.
 /// Returns early with `Ok(())` if Proof-of-Work is disabled on the provided `network`.
 /// This error might be incorrect if the local clock is skewed.
+///
+/// # SWARM production
+///
+/// On [`Network::SwarmMain`] only the syncer's status is checked, not the distance estimated
+/// from the tip's block time. SWARM is a small network: if every miner is offline for longer
+/// than [`MAX_ESTIMATED_DISTANCE_TO_NETWORK_CHAIN_TIP`] block spacings (about 2 hours at 75
+/// seconds), the tip's block time makes every node believe it is far behind a chain that does
+/// not exist, every node refuses a template, and no node can ever mine the next block. The
+/// sync status still refuses a node that is visibly downloading blocks from its peers. This
+/// changes nothing about which blocks are valid.
 pub fn check_synced_to_tip<Tip, SyncStatus>(
     network: &Network,
     latest_chain_tip: Tip,
@@ -876,9 +886,11 @@ where
         .estimate_distance_to_network_chain_tip(network)
         .ok_or_misc_error("no chain tip available yet")?;
 
-    if !sync_status.is_close_to_tip()
-        || estimated_distance_to_chain_tip > MAX_ESTIMATED_DISTANCE_TO_NETWORK_CHAIN_TIP
-    {
+    // See "SWARM production" above: an old tip must not stop a small network restarting.
+    let is_far_from_estimated_tip = !network.is_swarm_main()
+        && estimated_distance_to_chain_tip > MAX_ESTIMATED_DISTANCE_TO_NETWORK_CHAIN_TIP;
+
+    if !sync_status.is_close_to_tip() || is_far_from_estimated_tip {
         tracing::info!(
             ?estimated_distance_to_chain_tip,
             ?local_tip_height,

@@ -405,3 +405,77 @@ fn coinbase_at_nu6_3_routes_shielded_output_to_ironwood() {
     zebra_consensus::transaction::check::coinbase_outputs_are_decryptable(&coinbase, &net, height)
         .expect("Ironwood coinbase output is recoverable with the zero outgoing viewing key");
 }
+
+/// Calls `check_synced_to_tip` with a mocked tip at height 1000 whose estimated distance to the
+/// network tip is `estimated_distance`, and a mocked syncer status.
+fn check_synced_to_tip_with(
+    network: &Network,
+    estimated_distance: zebra_chain::block::HeightDiff,
+    is_close_to_tip: bool,
+) -> jsonrpsee::core::RpcResult<()> {
+    use zebra_chain::{chain_sync_status::mock::MockSyncStatus, chain_tip::mock::MockChainTip};
+
+    let (latest_chain_tip, latest_chain_tip_sender) = MockChainTip::new();
+    latest_chain_tip_sender.send_best_tip_height(Height(1000));
+    latest_chain_tip_sender.send_estimated_distance_to_network_chain_tip(estimated_distance);
+
+    let mut sync_status = MockSyncStatus::default();
+    sync_status.set_is_close_to_tip(is_close_to_tip);
+
+    super::check_synced_to_tip(network, latest_chain_tip, sync_status)
+}
+
+/// A distance far past `MAX_ESTIMATED_DISTANCE_TO_NETWORK_CHAIN_TIP`: what an old tip produces,
+/// for example after every SWARM miner was offline for a day (1152 spacings of 75 seconds).
+const OLD_TIP_DISTANCE: zebra_chain::block::HeightDiff = 1152;
+
+/// A SWARM production node with an old tip, whose syncer has nothing left to download, hands
+/// out templates, so the network can restart after all its miners were offline.
+#[test]
+fn check_synced_to_tip_swarm_main_old_tip_close_to_tip_is_ok() {
+    let swarm_main = zebra_chain::parameters::swarm_main::fixture::network();
+
+    assert!(OLD_TIP_DISTANCE > super::MAX_ESTIMATED_DISTANCE_TO_NETWORK_CHAIN_TIP);
+    check_synced_to_tip_with(&swarm_main, OLD_TIP_DISTANCE, true)
+        .expect("SwarmMain must not refuse a template only because the tip is old");
+    check_synced_to_tip_with(&swarm_main, 0, true)
+        .expect("SwarmMain at a fresh tip still hands out templates");
+}
+
+/// A SWARM production node whose syncer is still downloading blocks refuses a template, whatever
+/// the age of its tip.
+#[test]
+fn check_synced_to_tip_swarm_main_not_close_to_tip_is_refused() {
+    let swarm_main = zebra_chain::parameters::swarm_main::fixture::network();
+
+    for distance in [0, OLD_TIP_DISTANCE] {
+        let error = check_synced_to_tip_with(&swarm_main, distance, false)
+            .expect_err("SwarmMain must refuse while the syncer is not close to the tip");
+        assert_eq!(error.code(), super::NOT_SYNCED_ERROR_CODE.code());
+    }
+}
+
+/// Zcash Mainnet keeps upstream behaviour: an old tip is refused even when the syncer reports it
+/// is close to the tip.
+#[test]
+fn check_synced_to_tip_mainnet_old_tip_is_still_refused() {
+    let error = check_synced_to_tip_with(&Network::Mainnet, OLD_TIP_DISTANCE, true)
+        .expect_err("Mainnet must still refuse a template for an old tip");
+    assert_eq!(error.code(), super::NOT_SYNCED_ERROR_CODE.code());
+
+    check_synced_to_tip_with(&Network::Mainnet, 0, false)
+        .expect_err("Mainnet must still refuse while the syncer is not close to the tip");
+    check_synced_to_tip_with(&Network::Mainnet, 0, true)
+        .expect("Mainnet at a fresh tip, close to the tip, hands out templates");
+}
+
+/// Test networks (Testnet and Regtest) keep skipping the check entirely.
+#[test]
+fn check_synced_to_tip_test_networks_unchanged() {
+    let regtest = Network::new_regtest(Default::default());
+
+    for network in [Network::new_default_testnet(), regtest] {
+        check_synced_to_tip_with(&network, OLD_TIP_DISTANCE, false)
+            .expect("test networks skip the synced-to-tip check");
+    }
+}
